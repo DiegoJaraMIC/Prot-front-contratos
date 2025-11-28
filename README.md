@@ -1,51 +1,34 @@
 ```go
-package main
+package domain
 
-import (
-	"log"
-	"net/http"
+import "time"
 
-	"github.com/learning/go-todo-clean/internal/handler"
-	"github.com/learning/go-todo-clean/internal/repository"
-	"github.com/learning/go-todo-clean/internal/service"
-)
+// Task representa una tarea dentro del dominio de la aplicación.
+// Define la estructura principal utilizada en la capa de negocio.
+type Task struct {
+	ID          int       `json:"id"`
+	Title       string    `json:"title"`
+	// IsCompleted indica si la tarea ha sido marcada como completada.
+	IsCompleted bool      `json:"is_completed"`
+	// CreatedAt es la fecha/hora en que la tarea fue creada.
+	CreatedAt   time.Time `json:"created_at"`
+	// UpdatedAt es la fecha/hora de la última modificación de la tarea.
+	UpdatedAt   time.Time `json:"updated_at"`
+}
 
-// main es el punto de entrada de la aplicación HTTP.
-// Se encarga de:
-//   1. Instanciar las dependencias (repositorio, servicios, handlers).
-//   2. Definir las rutas HTTP y asociarlas a los handlers correspondientes.
-//   3. Iniciar el servidor HTTP.
-func main() {
-	// 1. Inyección de dependencias
-	repo := repository.NewInMemoryRepo()
-	svc := service.NewTaskService(repo)
-	h := handler.NewTaskHandler(svc)
+// TaskRepository define el contrato que debe cumplir cualquier
+// implementación de repositorio para la entidad Task.
+//
+// Esta interfaz permite desacoplar la capa de dominio de los detalles
+// de persistencia (por ejemplo, base de datos SQL, NoSQL, memoria, etc.).
+type TaskRepository interface {
+	// Save persiste una tarea. Debe crear una nueva entrada si la tarea
+	// no existe, o actualizarla si ya está almacenada.
+	Save(task *Task) error
 
-	// 2. Definición de rutas
-	// Se utiliza la ruta base /tasks para exponer el recurso de tareas.
-	//   - POST   /tasks -> Crear una nueva tarea
-	//   - GET    /tasks -> Listar todas las tareas
-	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			h.CreateTask(w, r)
-		case http.MethodGet:
-			h.GetAllTasks(w, r)
-		default:
-			http.Error(
-				w,
-				"Método no permitido",
-				http.StatusMethodNotAllowed,
-			)
-		}
-	})
-
-	// 3. Arranque del servidor
-	addr := ":8080"
-	log.Printf("Servidor iniciado en http://localhost%s\n", addr)
-
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("error al iniciar el servidor: %v", err)
-	}
+	// GetAll devuelve el listado completo de tareas almacenadas.
+	// El slice devuelto no debe ser nil; en ausencia de resultados,
+	// debe retornarse un slice vacío.
+	GetAll() ([]Task, error)
 }
 ```

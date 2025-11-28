@@ -1,34 +1,116 @@
 ```go
-package domain
+package handler
 
-import "time"
+import (
+	"encoding/json"
+	"net/http"
 
-// Task representa una tarea dentro del dominio de la aplicación.
-// Define la estructura principal utilizada en la capa de negocio.
-type Task struct {
-	ID          int       `json:"id"`
-	Title       string    `json:"title"`
-	// IsCompleted indica si la tarea ha sido marcada como completada.
-	IsCompleted bool      `json:"is_completed"`
-	// CreatedAt es la fecha/hora en que la tarea fue creada.
-	CreatedAt   time.Time `json:"created_at"`
-	// UpdatedAt es la fecha/hora de la última modificación de la tarea.
-	UpdatedAt   time.Time `json:"updated_at"`
+	"github.com/learning/go-todo-clean/internal/service"
+)
+
+// TaskHandler expone los endpoints HTTP relacionados con tareas (Task).
+// Actúa como capa de transporte/entrega, delegando la lógica de negocio
+// en el servicio de dominio (TaskService).
+type TaskHandler struct {
+	service *service.TaskService
 }
 
-// TaskRepository define el contrato que debe cumplir cualquier
-// implementación de repositorio para la entidad Task.
-//
-// Esta interfaz permite desacoplar la capa de dominio de los detalles
-// de persistencia (por ejemplo, base de datos SQL, NoSQL, memoria, etc.).
-type TaskRepository interface {
-	// Save persiste una tarea. Debe crear una nueva entrada si la tarea
-	// no existe, o actualizarla si ya está almacenada.
-	Save(task *Task) error
+// NewTaskHandler construye una nueva instancia de TaskHandler.
+func NewTaskHandler(s *service.TaskService) *TaskHandler {
+	return &TaskHandler{service: s}
+}
 
-	// GetAll devuelve el listado completo de tareas almacenadas.
-	// El slice devuelto no debe ser nil; en ausencia de resultados,
-	// debe retornarse un slice vacío.
-	GetAll() ([]Task, error)
+// CreateTask maneja la petición HTTP POST para crear una nueva tarea.
+//
+// Endpoint esperado:
+//   POST /tasks
+//
+// Request Body (JSON):
+//   {
+//     "title": "Texto del título de la tarea"
+//   }
+//
+// Response 201 (application/json):
+//   {
+//     "id": "...",
+//     "title": "...",
+//     "created_at": "...",
+//     ...
+//   }
+//
+// Códigos de estado posibles:
+//   201 Created      -> Tarea creada exitosamente
+//   400 Bad Request  -> JSON inválido o datos de entrada inválidos
+//   500 Internal Server Error -> Error interno al crear la tarea
+func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
+	// 1. Definimos un DTO temporal para el cuerpo de la petición
+	type requestBody struct {
+		Title string `json:"title"`
+	}
+
+	var body requestBody
+
+	// 2. Decodificamos el JSON recibido
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "JSON inválido", http.StatusBadRequest)
+		return
+	}
+
+	// 3. Validación básica de campos requeridos
+	if body.Title == "" {
+		http.Error(w, "El campo 'title' es obligatorio", http.StatusBadRequest)
+		return
+	}
+
+	// 4. Llamamos al servicio de dominio para crear la tarea
+	createdTask, err := h.service.CreateTask(body.Title)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// 5. Devolvemos la respuesta al cliente
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+
+	if err := json.NewEncoder(w).Encode(createdTask); err != nil {
+		// Si fallamos al codificar la respuesta, devolvemos 500
+		http.Error(w, "Error al generar la respuesta", http.StatusInternalServerError)
+		return
+	}
+}
+
+// GetAllTasks maneja la petición HTTP GET para obtener el listado de tareas.
+//
+// Endpoint esperado:
+//   GET /tasks
+//
+// Response 200 (application/json):
+//   [
+//     {
+//       "id": "...",
+//       "title": "...",
+//       "created_at": "...",
+//       ...
+//     },
+//     ...
+//   ]
+//
+// Códigos de estado posibles:
+//   200 OK           -> Listado devuelto correctamente
+//   500 Internal Server Error -> Error al obtener las tareas
+func (h *TaskHandler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
+	tasks, err := h.service.GetTasks()
+	if err != nil {
+		http.Error(w, "Error al obtener las tareas", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(tasks); err != nil {
+		http.Error(w, "Error al generar la respuesta", http.StatusInternalServerError)
+		return
+	}
 }
 ```

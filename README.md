@@ -1,116 +1,75 @@
 ```go
-package handler
+// Package repository proporciona una implementación en memoria para almacenar
+// y gestionar tareas (domain.Task) durante la ejecución de la aplicación.
+//
+// Esta implementación está pensada principalmente para:
+//   - Entornos de desarrollo y pruebas.
+//   - Prototipado rápido sin dependencia de una base de datos persistente.
+//   - Casos donde se requiera un repositorio simple sin I/O externo.
+//
+// NOTA: Esta implementación **no es segura para concurrencia**. En caso de uso
+// en entornos concurrentes, se recomienda envolverla con mecanismos de
+// sincronización (por ejemplo, sync.Mutex) o implementar un repositorio
+// específico para producción.
+package repository
 
 import (
-	"encoding/json"
-	"net/http"
-
-	"github.com/learning/go-todo-clean/internal/service"
+	"github.com/learning/go-todo-clean/internal/domain"
 )
 
-// TaskHandler expone los endpoints HTTP relacionados con tareas (Task).
-// Actúa como capa de transporte/entrega, delegando la lógica de negocio
-// en el servicio de dominio (TaskService).
-type TaskHandler struct {
-	service *service.TaskService
+// InMemoryRepo representa un repositorio en memoria de tareas.
+type InMemoryRepo struct {
+	tasks  []domain.Task
+	nextID int
 }
 
-// NewTaskHandler construye una nueva instancia de TaskHandler.
-func NewTaskHandler(s *service.TaskService) *TaskHandler {
-	return &TaskHandler{service: s}
+// NewInMemoryRepo crea y retorna una nueva instancia de InMemoryRepo
+// inicializada sin tareas y con el ID inicial configurado en 1.
+func NewInMemoryRepo() *InMemoryRepo {
+	return &InMemoryRepo{
+		tasks:  []domain.Task{},
+		nextID: 1,
+	}
 }
 
-// CreateTask maneja la petición HTTP POST para crear una nueva tarea.
+// Save agrega una nueva tarea al repositorio en memoria.
 //
-// Endpoint esperado:
-//   POST /tasks
+// Comportamiento:
+//   - Asigna un ID incremental a la tarea (sobrescribiendo cualquier valor previo).
+//   - Agrega la tarea a la colección interna.
+//   - No realiza validaciones de negocio (se asume que la entidad ya fue validada).
 //
-// Request Body (JSON):
-//   {
-//     "title": "Texto del título de la tarea"
+// Limitaciones:
+//   - No garantiza concurrencia segura.
+//   - No persiste datos más allá del ciclo de vida del proceso.
+//
+// Ejemplo de uso:
+//
+//   repo := NewInMemoryRepo()
+//   t := &domain.Task{Title: "Mi tarea"}
+//   if err := repo.Save(t); err != nil {
+//       // manejar error
 //   }
-//
-// Response 201 (application/json):
-//   {
-//     "id": "...",
-//     "title": "...",
-//     "created_at": "...",
-//     ...
-//   }
-//
-// Códigos de estado posibles:
-//   201 Created      -> Tarea creada exitosamente
-//   400 Bad Request  -> JSON inválido o datos de entrada inválidos
-//   500 Internal Server Error -> Error interno al crear la tarea
-func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
-	// 1. Definimos un DTO temporal para el cuerpo de la petición
-	type requestBody struct {
-		Title string `json:"title"`
-	}
+func (r *InMemoryRepo) Save(task *domain.Task) error {
+	task.ID = r.nextID
+	r.nextID++
+	r.tasks = append(r.tasks, *task)
 
-	var body requestBody
-
-	// 2. Decodificamos el JSON recibido
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "JSON inválido", http.StatusBadRequest)
-		return
-	}
-
-	// 3. Validación básica de campos requeridos
-	if body.Title == "" {
-		http.Error(w, "El campo 'title' es obligatorio", http.StatusBadRequest)
-		return
-	}
-
-	// 4. Llamamos al servicio de dominio para crear la tarea
-	createdTask, err := h.service.CreateTask(body.Title)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// 5. Devolvemos la respuesta al cliente
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-
-	if err := json.NewEncoder(w).Encode(createdTask); err != nil {
-		// Si fallamos al codificar la respuesta, devolvemos 500
-		http.Error(w, "Error al generar la respuesta", http.StatusInternalServerError)
-		return
-	}
+	return nil
 }
 
-// GetAllTasks maneja la petición HTTP GET para obtener el listado de tareas.
+// GetAll retorna el listado completo de tareas almacenadas en memoria.
 //
-// Endpoint esperado:
-//   GET /tasks
+// Devuelve:
+//   - Un slice de domain.Task con todas las tareas hasta el momento.
+//   - Un error en caso de fallo (actualmente siempre retorna nil).
 //
-// Response 200 (application/json):
-//   [
-//     {
-//       "id": "...",
-//       "title": "...",
-//       "created_at": "...",
-//       ...
-//     },
-//     ...
-//   ]
-//
-// Códigos de estado posibles:
-//   200 OK           -> Listado devuelto correctamente
-//   500 Internal Server Error -> Error al obtener las tareas
-func (h *TaskHandler) GetAllTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := h.service.GetTasks()
-	if err != nil {
-		http.Error(w, "Error al obtener las tareas", http.StatusInternalServerError)
-		return
-	}
+// NOTA: Se devuelve una copia del slice interno para evitar que el estado
+// interno pueda ser modificado de forma no controlada por el consumidor.
+func (r *InMemoryRepo) GetAll() ([]domain.Task, error) {
+	tasksCopy := make([]domain.Task, len(r.tasks))
+	copy(tasksCopy, r.tasks)
 
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(tasks); err != nil {
-		http.Error(w, "Error al generar la respuesta", http.StatusInternalServerError)
-		return
-	}
+	return tasksCopy, nil
 }
 ```
